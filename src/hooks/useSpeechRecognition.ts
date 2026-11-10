@@ -173,7 +173,12 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
       submitOnEndRef.current = false;
       setIsListening(false);
 
-      if (event.error === 'network' && onNetworkErrorRef.current?.()) {
+      const shouldFallback =
+        event.error === 'network' ||
+        event.error === 'service-not-allowed' ||
+        event.error === 'language-not-supported';
+
+      if (shouldFallback && onNetworkErrorRef.current?.()) {
         abortedIntentionallyRef.current = true;
         setError(null);
         return;
