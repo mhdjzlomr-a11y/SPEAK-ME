@@ -12,6 +12,8 @@ export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 export type SttMode = 'auto' | 'browser' | 'gemini-audio';
 
+export type ThemeMode = 'dark' | 'light';
+
 export interface VocabularyTip {
   word: string;
   meaning: string;
@@ -21,6 +23,7 @@ export interface GrammarFeedback {
   hasCorrection: boolean;
   correctedSentence?: string;
   explanation?: string;
+  explanationMalayalam?: string;
   betterAlternative?: string;
   vocabularyTip?: VocabularyTip;
 }
@@ -29,6 +32,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  malayalamText?: string;
   timestamp: number;
   feedback?: GrammarFeedback;
   error?: string;
@@ -39,6 +43,8 @@ export interface AppSettings {
   model: string;
   level: ConversationLevel;
   scenario: ScenarioId;
+  theme: ThemeMode;
+  showMalayalamTranslation: boolean;
   sttMode: SttMode;
   sttLang: string;
   ttsVoiceURI: string;

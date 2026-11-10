@@ -22,6 +22,29 @@ export function useSpeechSynthesis() {
 
   // Generation counter prevents canceled utterance callbacks from resetting new speech.
   const generationRef = useRef(0);
+  const unlockedRef = useRef(false);
+
+  /**
+   * Synchronously prime iOS Safari / Chrome iOS speechSynthesis during a user tap
+   * so async AI replies can still play aloud once the network request completes.
+   */
+  const unlock = useCallback(() => {
+    if (
+      !isSupported ||
+      unlockedRef.current ||
+      typeof SpeechSynthesisUtterance === 'undefined'
+    ) {
+      return;
+    }
+    try {
+      const primer = new SpeechSynthesisUtterance('');
+      primer.volume = 0;
+      window.speechSynthesis.speak(primer);
+      unlockedRef.current = true;
+    } catch {
+      // Ignore unlock failures on restricted devices.
+    }
+  }, [isSupported]);
 
   useEffect(() => {
     if (!isSupported) return;
@@ -124,5 +147,6 @@ export function useSpeechSynthesis() {
     activeId,
     speak,
     stop,
+    unlock,
   };
 }

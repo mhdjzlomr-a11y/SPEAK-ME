@@ -80,7 +80,12 @@ export function App() {
         currentSettings: AppSettings,
         priorHistory: ChatMessage[],
         signal: AbortSignal
-      ) => Promise<{ transcript?: string; reply: string; feedback: ChatMessage['feedback'] }>;
+      ) => Promise<{
+        transcript?: string;
+        reply: string;
+        replyMalayalam?: string;
+        feedback: ChatMessage['feedback'];
+      }>;
     }) => {
       const currentSettings = settingsRef.current;
       if (!currentSettings.apiKey.trim()) {
@@ -89,6 +94,7 @@ export function App() {
         return;
       }
 
+      speech.unlock();
       speech.stop();
       setApiError(null);
 
@@ -118,6 +124,7 @@ export function App() {
           id: createMessageId(),
           role: 'assistant',
           text: result.reply,
+          malayalamText: result.replyMalayalam,
           timestamp: Date.now(),
         };
 
@@ -261,6 +268,14 @@ export function App() {
 
   useEffect(() => {
     saveSettings(settings);
+    document.documentElement.classList.toggle('dark', settings.theme === 'dark');
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+      themeMeta.setAttribute(
+        'content',
+        settings.theme === 'dark' ? '#020617' : '#ffffff'
+      );
+    }
   }, [settings]);
 
   useEffect(() => {
@@ -284,6 +299,7 @@ export function App() {
     : 'idle';
 
   const handleMicAction = () => {
+    speech.unlock();
     setApiError(null);
     recognition.clearError();
     audioRecorder.clearError();
@@ -348,11 +364,13 @@ export function App() {
   };
 
   const handleStartWithGreeting = () => {
+    speech.unlock();
     const scenarioDef = getScenarioById(settings.scenario);
     const greetingMsg: ChatMessage = {
       id: createMessageId(),
       role: 'assistant',
       text: scenarioDef.starterPrompt,
+      malayalamText: scenarioDef.starterPromptMl,
       timestamp: Date.now(),
     };
     setMessages([greetingMsg]);
@@ -373,14 +391,21 @@ export function App() {
   const combinedError = apiError ?? recognition.error ?? audioRecorder.error;
 
   return (
-    <div className="flex h-full flex-col bg-slate-950 text-slate-100">
+    <div className="flex h-[100dvh] flex-col bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <Header
         scenario={settings.scenario}
         level={settings.level}
+        theme={settings.theme}
         hasApiKey={Boolean(settings.apiKey.trim())}
         hasMessages={messages.length > 0}
         onScenarioChange={handleScenarioChange}
         onLevelChange={handleLevelChange}
+        onToggleTheme={() =>
+          setSettings((prev) => ({
+            ...prev,
+            theme: prev.theme === 'dark' ? 'light' : 'dark',
+          }))
+        }
         onNewChat={handleNewChat}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -389,6 +414,7 @@ export function App() {
         messages={messages}
         scenario={settings.scenario}
         hasApiKey={Boolean(settings.apiKey.trim())}
+        showMalayalam={settings.showMalayalamTranslation}
         isThinking={isThinking}
         activeSpeechId={speech.activeId}
         ttsRate={settings.ttsRate}

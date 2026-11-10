@@ -146,7 +146,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions) {
       const shouldSubmit = submitOnStopRef.current && !cancelledRef.current;
       const recordedChunks = chunksRef.current;
       const mimeType = normalizeAudioMimeType(
-        recorder.mimeType || recordedChunks[0]?.type
+        recorder.mimeType || recordedChunks[0]?.type || preferredMimeType
       );
 
       chunksRef.current = [];

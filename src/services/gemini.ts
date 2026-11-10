@@ -28,6 +28,7 @@ export class GeminiApiError extends Error {
 
 export interface GeminiTutorResult {
   reply: string;
+  replyMalayalam?: string;
   feedback: GrammarFeedback;
 }
 
@@ -69,6 +70,10 @@ const TUTOR_BASE_PROPERTIES = {
     type: 'STRING',
     description: 'Natural, warm conversational response in English (2-4 concise spoken sentences ending with a follow-up prompt or question).',
   },
+  replyMalayalam: {
+    type: 'STRING',
+    description: 'Accurate, natural Malayalam translation (in Malayalam script) of the exact "reply" text so a Malayalam speaker can easily understand it.',
+  },
   hasCorrection: {
     type: 'BOOLEAN',
     description: 'True only if the learner had a noticeable grammar, tense, preposition, or unnatural phrasing mistake worth gently improving.',
@@ -80,6 +85,10 @@ const TUTOR_BASE_PROPERTIES = {
   explanation: {
     type: 'STRING',
     description: 'A brief, friendly 1-2 sentence explanation of the grammar or phrasing tip.',
+  },
+  explanationMalayalam: {
+    type: 'STRING',
+    description: 'Brief Malayalam translation/explanation (in Malayalam script) of the grammar tip when hasCorrection is true.',
   },
   betterAlternative: {
     type: 'STRING',
@@ -98,7 +107,7 @@ const TUTOR_BASE_PROPERTIES = {
 const TUTOR_RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: TUTOR_BASE_PROPERTIES,
-  required: ['reply', 'hasCorrection'],
+  required: ['reply', 'replyMalayalam', 'hasCorrection'],
 };
 
 const TUTOR_AUDIO_RESPONSE_SCHEMA = {
@@ -110,7 +119,7 @@ const TUTOR_AUDIO_RESPONSE_SCHEMA = {
     },
     ...TUTOR_BASE_PROPERTIES,
   },
-  required: ['transcript', 'reply', 'hasCorrection'],
+  required: ['transcript', 'reply', 'replyMalayalam', 'hasCorrection'],
 };
 
 export function buildSystemInstruction(
@@ -128,8 +137,9 @@ export function buildSystemInstruction(
     '- Keep your spoken "reply" natural and concise (2 to 4 sentences) so Text-to-Speech sounds conversational.',
     '- Almost always end your "reply" with an inviting open-ended follow-up question to keep the learner speaking.',
     '- Do not lecture inside "reply"; keep grammar corrections strictly inside the structured feedback fields.',
+    '- Always provide "replyMalayalam" as a natural, easy-to-understand Malayalam translation of your English "reply" (written in Malayalam script).',
     '- Ignore minor speech-to-text punctuation quirks (missing periods or capitalization). Only set hasCorrection=true when there is an actual grammar, verb tense, article, preposition, or phrasing issue.',
-    '- When hasCorrection=true, provide correctedSentence and a kind, concise explanation (and optionally betterAlternative or one useful vocabularyTip).',
+    '- When hasCorrection=true, provide correctedSentence, a kind concise explanation, and explanationMalayalam in Malayalam script (and optionally betterAlternative or one useful vocabularyTip).',
   ].join('\n');
 }
 
@@ -172,8 +182,14 @@ export function parseTutorJsonResponse(rawText: string): GeminiTutorResult {
       ? { word: rawTip.word.trim(), meaning: rawTip.meaning.trim() }
       : undefined;
 
+  const replyMalayalam =
+    typeof parsed.replyMalayalam === 'string' && parsed.replyMalayalam.trim()
+      ? parsed.replyMalayalam.trim()
+      : undefined;
+
   return {
     reply,
+    replyMalayalam,
     feedback: {
       hasCorrection,
       correctedSentence:
@@ -183,6 +199,12 @@ export function parseTutorJsonResponse(rawText: string): GeminiTutorResult {
       explanation:
         hasCorrection && typeof parsed.explanation === 'string'
           ? parsed.explanation.trim()
+          : undefined,
+      explanationMalayalam:
+        hasCorrection &&
+        typeof parsed.explanationMalayalam === 'string' &&
+        parsed.explanationMalayalam.trim()
+          ? parsed.explanationMalayalam.trim()
           : undefined,
       betterAlternative:
         typeof parsed.betterAlternative === 'string' && parsed.betterAlternative.trim()

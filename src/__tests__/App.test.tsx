@@ -51,9 +51,11 @@ describe('App integration flow', () => {
                   {
                     text: JSON.stringify({
                       reply: 'Oh nice! Who did you meet at the office?',
+                      replyMalayalam: 'നല്ലത്! ഓഫീസിൽ വെച്ച് ആരെയാണ് കണ്ടത്?',
                       hasCorrection: true,
                       correctedSentence: 'Yesterday I went to the office.',
                       explanation: 'Use past tense "went" when talking about yesterday.',
+                      explanationMalayalam: 'ഇന്നലത്തെ കാര്യം പറയുമ്പോൾ "went" ഉപയോഗിക്കുക.',
                       betterAlternative: 'I went into the office yesterday.',
                     }),
                   },
@@ -88,9 +90,15 @@ describe('App integration flow', () => {
       ).toBeInTheDocument();
     });
 
+    expect(
+      screen.getByText('നല്ലത്! ഓഫീസിൽ വെച്ച് ആരെയാണ് കണ്ടത്?')
+    ).toBeInTheDocument();
     expect(screen.getByText(/Grammar & Phrasing Tip/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Yesterday I went to the office\./i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('ഇന്നലത്തെ കാര്യം പറയുമ്പോൾ "went" ഉപയോഗിക്കുക.')
     ).toBeInTheDocument();
   });
 
@@ -161,5 +169,21 @@ describe('App integration flow', () => {
     expect(stopTrackMock).toHaveBeenCalled();
 
     delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
+  });
+
+  it('toggles between dark theme and white (light) theme', () => {
+    render(<App />);
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+
+    const toggleToLight = screen.getByRole('button', { name: /Switch to White theme/i });
+    fireEvent.click(toggleToLight);
+
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+
+    const toggleToDark = screen.getByRole('button', { name: /Switch to Dark theme/i });
+    fireEvent.click(toggleToDark);
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 });

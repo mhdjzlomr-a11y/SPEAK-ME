@@ -115,6 +115,7 @@ describe('sendConversationTurn', () => {
     expect(body.generationConfig.responseMimeType).toBe('application/json');
     expect(body.generationConfig.responseSchema.required).toEqual([
       'reply',
+      'replyMalayalam',
       'hasCorrection',
     ]);
     // Excludes failed message (id: 3), keeps prior 2 + new user message.
@@ -210,6 +211,7 @@ describe('sendAudioConversationTurn', () => {
     expect(body.generationConfig.responseSchema.required).toEqual([
       'transcript',
       'reply',
+      'replyMalayalam',
       'hasCorrection',
     ]);
     expect(body.contents[0].parts[1]).toEqual({
