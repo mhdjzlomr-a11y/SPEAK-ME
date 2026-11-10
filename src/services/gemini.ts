@@ -59,10 +59,22 @@ interface GeminiContentTurn {
   parts: GeminiContentPart[];
 }
 
+const GEMINI_TTS_MODELS = [
+  'gemini-3.8-flash-lite-tts',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-3.8-flash-tts',
+];
+
 interface GeminiResponsePayload {
   candidates?: Array<{
     content?: {
-      parts?: Array<{ text?: string }>;
+      parts?: Array<{
+        text?: string;
+        inlineData?: {
+          mimeType?: string;
+          data?: string;
+        };
+      }>;
     };
   }>;
   error?: {
@@ -515,6 +527,98 @@ export async function sendAudioConversationTurn(params: {
   return parseAudioTutorJsonResponse(rawText);
 }
 
+export interface GeminiTtsAudioResult {
+  audioBase64: string;
+  mimeType: string;
+}
+
+/**
+ * Generate natural, human-sounding English speech via Gemini's native TTS models
+ * with automatic fallback across TTS model pools on 404/429/503.
+ */
+export async function synthesizeSpeechWithGemini(params: {
+  apiKey: string;
+  text: string;
+  voiceName: string;
+  signal?: AbortSignal;
+}): Promise<GeminiTtsAudioResult> {
+  const trimmedKey = params.apiKey.trim();
+  if (!trimmedKey) {
+    throw new GeminiApiError(
+      'Missing Gemini API key for Gemini AI voice.',
+      'missing-key'
+    );
+  }
+
+  let lastError: unknown;
+  for (let i = 0; i < GEMINI_TTS_MODELS.length; i++) {
+    const ttsModel = GEMINI_TTS_MODELS[i];
+    try {
+      const response = await fetch(
+        `${GEMINI_API_BASE}/models/${encodeURIComponent(ttsModel)}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': trimmedKey,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: params.text }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: params.voiceName || 'Aoede',
+                  },
+                },
+              },
+            },
+          }),
+          signal: params.signal,
+        }
+      );
+
+      const data = (await response.json().catch(() => ({}))) as GeminiResponsePayload;
+      if (!response.ok) {
+        throw mapHttpError(response.status, data.error?.message);
+      }
+
+      const audioPart = data.candidates?.[0]?.content?.parts?.find(
+        (part) => Boolean(part.inlineData?.data)
+      );
+      const audioData = audioPart?.inlineData?.data;
+      if (!audioData) {
+        throw new GeminiApiError(
+          'Gemini TTS did not return audio data.',
+          'bad-response'
+        );
+      }
+
+      return {
+        audioBase64: audioData,
+        mimeType:
+          audioPart?.inlineData?.mimeType || 'audio/L16;codec=pcm;rate=24000',
+      };
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err;
+      }
+      lastError = err;
+      const isRetryable =
+        err instanceof GeminiApiError &&
+        err.status !== undefined &&
+        RETRYABLE_STATUS_CODES.has(err.status);
+
+      if (!isRetryable || i === GEMINI_TTS_MODELS.length - 1) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 /**
  * Verify the provided Gemini API key and list available generateContent Gemini models.
  */
@@ -560,7 +664,9 @@ export async function fetchAvailableModels(
         item.name?.startsWith('models/gemini-') &&
         item.supportedGenerationMethods?.includes('generateContent') &&
         !item.name.includes('embedding') &&
-        !item.name.includes('image')
+        !item.name.includes('image') &&
+        !item.name.includes('-tts') &&
+        !item.name.includes('-live')
     )
     .map((item) => {
       const id = (item.name ?? '').replace(/^models\//, '');

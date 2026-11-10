@@ -14,6 +14,13 @@ export type SttMode = 'auto' | 'browser' | 'gemini-audio';
 
 export type ThemeMode = 'dark' | 'light';
 
+export type VoiceEngine = 'gemini' | 'browser';
+
+export interface GeminiVoiceOption {
+  id: string;
+  label: string;
+}
+
 export interface VocabularyTip {
   word: string;
   meaning: string;
@@ -48,6 +55,8 @@ export interface AppSettings {
   showMalayalamTranslation: boolean;
   sttMode: SttMode;
   sttLang: string;
+  voiceEngine: VoiceEngine;
+  geminiVoiceName: string;
   ttsVoiceURI: string;
   ttsRate: number;
   autoListen: boolean;

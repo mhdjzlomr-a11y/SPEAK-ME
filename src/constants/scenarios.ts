@@ -2,6 +2,7 @@ import type {
   AppSettings,
   ConversationLevel,
   GeminiModelOption,
+  GeminiVoiceOption,
   ScenarioId,
 } from '../types/conversation';
 
@@ -114,6 +115,15 @@ export const STT_ACCENTS: AccentOption[] = [
   { code: 'en-AU', label: 'English (Australia)' },
 ];
 
+export const GEMINI_VOICES: GeminiVoiceOption[] = [
+  { id: 'Aoede', label: 'Aoede — Warm & Friendly (Female)' },
+  { id: 'Puck', label: 'Puck — Upbeat & Natural (Male)' },
+  { id: 'Zephyr', label: 'Zephyr — Bright & Clear (Female)' },
+  { id: 'Kore', label: 'Kore — Calm & Steady (Female)' },
+  { id: 'Charon', label: 'Charon — Deep & Conversational (Male)' },
+  { id: 'Leda', label: 'Leda — Gentle & Expressive (Female)' },
+];
+
 export const DEFAULT_GEMINI_MODELS: GeminiModelOption[] = [
   {
     id: 'gemini-3.5-flash-lite',
@@ -142,6 +152,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showMalayalamTranslation: true,
   sttMode: 'auto',
   sttLang: 'en-US',
+  voiceEngine: 'gemini',
+  geminiVoiceName: 'Aoede',
   ttsVoiceURI: '',
   ttsRate: 1.0,
   autoListen: false,

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import {
   DEFAULT_GEMINI_MODELS,
+  GEMINI_VOICES,
   STT_ACCENTS,
 } from '../constants/scenarios';
 import { fetchAvailableModels } from '../services/gemini';
@@ -18,6 +19,7 @@ import type {
   GeminiModelOption,
   SttMode,
   ThemeMode,
+  VoiceEngine,
 } from '../types/conversation';
 
 interface SettingsModalProps {
@@ -26,7 +28,7 @@ interface SettingsModalProps {
   voices: SpeechSynthesisVoice[];
   onClose: () => void;
   onSave: (updated: AppSettings) => void;
-  onTestVoice: (voiceURI: string, rate: number, lang: string) => void;
+  onTestVoice: (draft: AppSettings) => void;
 }
 
 export function SettingsModal({
@@ -289,37 +291,88 @@ export function SettingsModal({
           </section>
 
           {/* Text-to-Speech Voice */}
-          <section className="space-y-1.5">
+          <section className="space-y-2.5">
             <div className="flex items-center justify-between">
-              <label htmlFor="tts-voice" className="font-medium text-slate-800 dark:text-slate-200">
-                AI Voice (Text-to-Speech)
+              <label htmlFor="voice-engine" className="font-medium text-slate-800 dark:text-slate-200">
+                AI Partner Voice
               </label>
               <button
                 type="button"
-                onClick={() =>
-                  onTestVoice(draft.ttsVoiceURI, draft.ttsRate, draft.sttLang)
-                }
+                onClick={() => onTestVoice(draft)}
                 className="inline-flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 dark:hover:text-cyan-300"
               >
                 <Volume2 className="h-3.5 w-3.5" />
                 Test Voice
               </button>
             </div>
+
             <select
-              id="tts-voice"
-              value={draft.ttsVoiceURI}
+              id="voice-engine"
+              value={draft.voiceEngine}
               onChange={(e) =>
-                setDraft((prev) => ({ ...prev, ttsVoiceURI: e.target.value }))
+                setDraft((prev) => ({
+                  ...prev,
+                  voiceEngine: e.target.value as VoiceEngine,
+                }))
               }
               className={inputClasses}
             >
-              <option value="">Auto (Best Available English Voice)</option>
-              {englishVoices.map((voice) => (
-                <option key={voice.voiceURI} value={voice.voiceURI}>
-                  {voice.name} ({voice.lang})
-                </option>
-              ))}
+              <option value="gemini">
+                Gemini Natural Human Voice (Studio Quality — Recommended)
+              </option>
+              <option value="browser">
+                Browser Built-in Voice (Instant / Offline)
+              </option>
             </select>
+
+            {draft.voiceEngine === 'gemini' ? (
+              <div className="space-y-1">
+                <label htmlFor="gemini-voice-name" className="sr-only">
+                  Gemini English Speaker Voice
+                </label>
+                <select
+                  id="gemini-voice-name"
+                  value={draft.geminiVoiceName}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      geminiVoiceName: e.target.value,
+                    }))
+                  }
+                  className={inputClasses}
+                >
+                  {GEMINI_VOICES.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Uses realistic studio-quality English voices from your Gemini API key (automatically falls back to browser voice if quota runs out).
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="tts-voice" className="sr-only">
+                  Browser Built-in English Voice
+                </label>
+                <select
+                  id="tts-voice"
+                  value={draft.ttsVoiceURI}
+                  onChange={(e) =>
+                    setDraft((prev) => ({ ...prev, ttsVoiceURI: e.target.value }))
+                  }
+                  className={inputClasses}
+                >
+                  <option value="">Auto (Best Available English Voice)</option>
+                  {englishVoices.map((voice) => (
+                    <option key={voice.voiceURI} value={voice.voiceURI}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </section>
 
           {/* Speech Speed */}

@@ -52,24 +52,39 @@ export function App() {
   const speech = useSpeechSynthesis();
   const startListeningRef = useRef<() => void>(() => {});
 
+  const buildVoiceOptions = useCallback(
+    (
+      sourceSettings: AppSettings,
+      speechId: string,
+      rateOverride?: number,
+      onEnd?: () => void
+    ) => ({
+      id: speechId,
+      rate: rateOverride ?? sourceSettings.ttsRate,
+      voiceEngine: sourceSettings.voiceEngine,
+      apiKey: sourceSettings.apiKey,
+      geminiVoiceName: sourceSettings.geminiVoiceName,
+      preferredVoiceURI: sourceSettings.ttsVoiceURI,
+      preferredLang: sourceSettings.sttLang,
+      onEnd,
+    }),
+    []
+  );
+
   const speakReplyWithAutoContinue = useCallback(
     (text: string, messageId: string) => {
-      const currentSettings = settingsRef.current;
-      speech.speak(text, {
-        id: messageId,
-        rate: currentSettings.ttsRate,
-        preferredVoiceURI: currentSettings.ttsVoiceURI,
-        preferredLang: currentSettings.sttLang,
-        onEnd: () => {
+      speech.speak(
+        text,
+        buildVoiceOptions(settingsRef.current, messageId, undefined, () => {
           if (settingsRef.current.autoListen) {
             window.setTimeout(() => {
               startListeningRef.current();
             }, 250);
           }
-        },
-      });
+        })
+      );
     },
-    [speech]
+    [buildVoiceOptions, speech]
   );
 
   const runTutorTurn = useCallback(
@@ -417,14 +432,10 @@ export function App() {
   };
 
   const handleSpeakText = (text: string, speechId: string, rate?: number) => {
+    speech.unlock();
     recognition.abort();
     audioRecorder.abort();
-    speech.speak(text, {
-      id: speechId,
-      rate: rate ?? settings.ttsRate,
-      preferredVoiceURI: settings.ttsVoiceURI,
-      preferredLang: settings.sttLang,
-    });
+    speech.speak(text, buildVoiceOptions(settings, speechId, rate));
   };
 
   const combinedError = apiError ?? recognition.error ?? audioRecorder.error;
@@ -499,17 +510,13 @@ export function App() {
             }
             setSettings(updated);
           }}
-          onTestVoice={(voiceURI, rate, lang) =>
+          onTestVoice={(draft) => {
+            speech.unlock();
             speech.speak(
               'Hello! I am SpeakMe, your English speaking partner. Let us practice together!',
-              {
-                id: 'voice-preview',
-                rate,
-                preferredVoiceURI: voiceURI,
-                preferredLang: lang,
-              }
-            )
-          }
+              buildVoiceOptions(draft, 'voice-preview')
+            );
+          }}
         />
       )}
     </div>

@@ -41,32 +41,34 @@ describe('App integration flow', () => {
   });
 
   it('shows onboarding when API key is missing, saves key in Settings, and completes a conversation turn with grammar feedback', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  {
-                    text: JSON.stringify({
-                      reply: 'Oh nice! Who did you meet at the office?',
-                      replyMalayalam: 'നല്ലത്! ഓഫീസിൽ വെച്ച് ആരെയാണ് കണ്ടത്?',
-                      hasCorrection: true,
-                      correctedSentence: 'Yesterday I went to the office.',
-                      explanation: 'Use past tense "went" when talking about yesterday.',
-                      explanationMalayalam: 'ഇന്നലത്തെ കാര്യം പറയുമ്പോൾ "went" ഉപയോഗിക്കുക.',
-                      betterAlternative: 'I went into the office yesterday.',
-                    }),
-                  },
-                ],
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        reply: 'Oh nice! Who did you meet at the office?',
+                        replyMalayalam: 'നല്ലത്! ഓഫീസിൽ വെച്ച് ആരെയാണ് കണ്ടത്?',
+                        hasCorrection: true,
+                        correctedSentence: 'Yesterday I went to the office.',
+                        explanation: 'Use past tense "went" when talking about yesterday.',
+                        explanationMalayalam: 'ഇന്നലത്തെ കാര്യം പറയുമ്പോൾ "went" ഉപയോഗിക്കുക.',
+                        betterAlternative: 'I went into the office yesterday.',
+                      }),
+                    },
+                  ],
+                },
               },
-            },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
       )
-    );
+      .mockResolvedValue(new Response('{}', { status: 404 }));
 
     render(<App />);
 
@@ -219,7 +221,8 @@ describe('App integration flow', () => {
           }),
           { status: 200 }
         )
-      );
+      )
+      .mockResolvedValue(new Response('{}', { status: 404 }));
 
     render(<App />);
 

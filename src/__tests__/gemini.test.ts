@@ -4,6 +4,7 @@ import {
   parseTutorJsonResponse,
   sendAudioConversationTurn,
   sendConversationTurn,
+  synthesizeSpeechWithGemini,
 } from '../services/gemini';
 import type { ChatMessage } from '../types/conversation';
 
@@ -211,6 +212,61 @@ describe('sendConversationTurn', () => {
     const secondBody = JSON.parse(String(mockFetch.mock.calls[1][1]?.body));
     expect(firstBody.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
     expect(secondBody.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  });
+});
+
+describe('synthesizeSpeechWithGemini', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('requests AUDIO modality with prebuiltVoiceConfig and falls back across TTS models', async () => {
+    const mockFetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'audio/L16;codec=pcm;rate=24000',
+                        data: 'AQACAQ==',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
+
+    const result = await synthesizeSpeechWithGemini({
+      apiKey: 'tts-key',
+      text: 'Hello! How are you?',
+      voiceName: 'Aoede',
+    });
+
+    expect(result.audioBase64).toBe('AQACAQ==');
+    expect(result.mimeType).toBe('audio/L16;codec=pcm;rate=24000');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(String(mockFetch.mock.calls[0][0])).toContain(
+      '/models/gemini-3.8-flash-lite-tts:generateContent'
+    );
+    expect(String(mockFetch.mock.calls[1][0])).toContain(
+      '/models/gemini-2.5-flash-preview-tts:generateContent'
+    );
+
+    const body = JSON.parse(String(mockFetch.mock.calls[1][1]?.body));
+    expect(body.generationConfig.responseModalities).toEqual(['AUDIO']);
+    expect(body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe(
+      'Aoede'
+    );
   });
 });
 
