@@ -142,10 +142,11 @@ describe('sendConversationTurn', () => {
       })
     ).rejects.toMatchObject({ code: 'invalid-key', status: 401 });
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: { message: 'Quota exceeded' } }), {
-        status: 429,
-      })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ error: { message: 'Quota exceeded' } }), {
+          status: 429,
+        })
     );
 
     await expect(
@@ -158,6 +159,53 @@ describe('sendConversationTurn', () => {
         scenario: 'free-talk',
       })
     ).rejects.toMatchObject({ code: 'rate-limit', status: 429 });
+  });
+
+  it('automatically falls back to gemini-3.5-flash-lite when primary model returns 503 high demand', async () => {
+    const mockFetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { message: 'This model is currently experiencing high demand.' } }),
+          { status: 503 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        reply: 'I am doing great! How about you?',
+                        replyMalayalam: 'എനിക്ക് സുഖമാണ്! നിങ്ങൾക്കോ?',
+                        hasCorrection: false,
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
+
+    const result = await sendConversationTurn({
+      apiKey: 'valid-key',
+      model: 'gemini-3.8-flash',
+      history: [],
+      userMessage: 'How are you',
+      level: 'intermediate',
+      scenario: 'free-talk',
+    });
+
+    expect(result.reply).toBe('I am doing great! How about you?');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(String(mockFetch.mock.calls[0][0])).toContain('/models/gemini-3.8-flash:generateContent');
+    expect(String(mockFetch.mock.calls[1][0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
   });
 });
 

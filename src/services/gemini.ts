@@ -9,10 +9,23 @@ import type {
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const MAX_HISTORY_MESSAGES = 20;
+const FALLBACK_FLASH_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-2.5-flash',
+];
+const RETRYABLE_STATUS_CODES = new Set([404, 429, 500, 502, 503, 504]);
 
 export class GeminiApiError extends Error {
   status?: number;
-  code: 'missing-key' | 'invalid-key' | 'rate-limit' | 'model-not-found' | 'bad-response' | 'network';
+  code:
+    | 'missing-key'
+    | 'invalid-key'
+    | 'rate-limit'
+    | 'overloaded'
+    | 'model-not-found'
+    | 'bad-response'
+    | 'network';
 
   constructor(
     message: string,
@@ -254,8 +267,15 @@ function mapHttpError(status: number, serverMessage?: string): GeminiApiError {
   }
   if (status === 429) {
     return new GeminiApiError(
-      'Free-tier rate limit reached. Wait a few seconds or switch to Gemini 3.5 Flash-Lite in Settings.',
+      'Free-tier rate limit reached. Wait a few seconds and tap Retry.',
       'rate-limit',
+      status
+    );
+  }
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return new GeminiApiError(
+      'Gemini servers are temporarily busy with high demand. Wait a moment and tap Retry.',
+      'overloaded',
       status
     );
   }
@@ -265,6 +285,35 @@ function mapHttpError(status: number, serverMessage?: string): GeminiApiError {
     'network',
     status
   );
+}
+
+function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      globalThis.clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function buildModelAttemptOrder(primaryModel: string): string[] {
+  const seen = new Set<string>([primaryModel]);
+  const ordered = [primaryModel];
+  for (const fallback of FALLBACK_FLASH_MODELS) {
+    if (!seen.has(fallback)) {
+      seen.add(fallback);
+      ordered.push(fallback);
+    }
+  }
+  return ordered;
 }
 
 function buildHistoryContents(history: ChatMessage[]): GeminiContentTurn[] {
@@ -277,7 +326,7 @@ function buildHistoryContents(history: ChatMessage[]): GeminiContentTurn[] {
     }));
 }
 
-async function executeGenerateContent(params: {
+async function executeSingleModelRequest(params: {
   apiKey: string;
   model: string;
   level: ConversationLevel;
@@ -286,14 +335,6 @@ async function executeGenerateContent(params: {
   responseSchema: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<string> {
-  const trimmedKey = params.apiKey.trim();
-  if (!trimmedKey) {
-    throw new GeminiApiError(
-      'Please add your free Google Gemini API key in Settings to start.',
-      'missing-key'
-    );
-  }
-
   let response: Response;
   try {
     response = await fetch(
@@ -302,7 +343,7 @@ async function executeGenerateContent(params: {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': trimmedKey,
+          'x-goog-api-key': params.apiKey,
         },
         body: JSON.stringify({
           systemInstruction: {
@@ -343,6 +384,57 @@ async function executeGenerateContent(params: {
   }
 
   return rawText;
+}
+
+async function executeGenerateContent(params: {
+  apiKey: string;
+  model: string;
+  level: ConversationLevel;
+  scenario: ScenarioId;
+  contents: GeminiContentTurn[];
+  responseSchema: Record<string, unknown>;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const trimmedKey = params.apiKey.trim();
+  if (!trimmedKey) {
+    throw new GeminiApiError(
+      'Please add your free Google Gemini API key in Settings to start.',
+      'missing-key'
+    );
+  }
+
+  const candidates = buildModelAttemptOrder(params.model);
+  let lastError: unknown;
+
+  for (let i = 0; i < candidates.length; i++) {
+    const modelId = candidates[i];
+    try {
+      return await executeSingleModelRequest({
+        ...params,
+        apiKey: trimmedKey,
+        model: modelId,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err;
+      }
+      lastError = err;
+
+      const isRetryable =
+        err instanceof GeminiApiError &&
+        err.status !== undefined &&
+        RETRYABLE_STATUS_CODES.has(err.status);
+
+      const hasNextCandidate = i < candidates.length - 1;
+      if (!isRetryable || !hasNextCandidate) {
+        throw err;
+      }
+
+      await waitWithAbort(200, params.signal);
+    }
+  }
+
+  throw lastError;
 }
 
 export async function sendConversationTurn(params: {

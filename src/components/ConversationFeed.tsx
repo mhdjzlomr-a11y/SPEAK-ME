@@ -16,6 +16,7 @@ interface ConversationFeedProps {
   onStartWithGreeting: () => void;
   onSpeakText: (text: string, speechId: string, rate?: number) => void;
   onStopSpeaking: () => void;
+  onRetryMessage: (message: ChatMessage) => void;
 }
 
 export function ConversationFeed({
@@ -30,6 +31,7 @@ export function ConversationFeed({
   onStartWithGreeting,
   onSpeakText,
   onStopSpeaking,
+  onRetryMessage,
 }: ConversationFeedProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scenarioInfo = getScenarioById(scenario);
@@ -102,6 +104,7 @@ export function ConversationFeed({
               ttsRate={ttsRate}
               onSpeakText={onSpeakText}
               onStopSpeaking={onStopSpeaking}
+              onRetryMessage={onRetryMessage}
             />
           ))
         )}

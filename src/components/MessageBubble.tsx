@@ -3,6 +3,7 @@ import {
   BookOpen,
   CheckCircle2,
   Lightbulb,
+  RotateCw,
   Sparkles,
   Square,
   Volume2,
@@ -16,6 +17,7 @@ interface MessageBubbleProps {
   ttsRate: number;
   onSpeakText: (text: string, speechId: string, rate?: number) => void;
   onStopSpeaking: () => void;
+  onRetryMessage?: (message: ChatMessage) => void;
 }
 
 export function MessageBubble({
@@ -25,6 +27,7 @@ export function MessageBubble({
   ttsRate,
   onSpeakText,
   onStopSpeaking,
+  onRetryMessage,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const feedback = message.feedback;
@@ -42,9 +45,21 @@ export function MessageBubble({
         </div>
 
         {message.error && (
-          <div className="flex max-w-[85%] items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 sm:max-w-[75%] dark:border-rose-500/30 dark:bg-rose-950/50 dark:text-rose-200">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500 dark:text-rose-400" />
-            <span>{message.error}</span>
+          <div className="flex max-w-[85%] items-start justify-between gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 sm:max-w-[75%] dark:border-rose-500/30 dark:bg-rose-950/50 dark:text-rose-200">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500 dark:text-rose-400" />
+              <span>{message.error}</span>
+            </div>
+            {onRetryMessage && (
+              <button
+                type="button"
+                onClick={() => onRetryMessage(message)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-300 bg-white px-2 py-1 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-900/60 dark:text-rose-100 dark:hover:bg-rose-800/70"
+              >
+                <RotateCw className="h-3 w-3" />
+                Retry
+              </button>
+            )}
           </div>
         )}
 

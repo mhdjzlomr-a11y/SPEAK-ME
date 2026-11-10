@@ -68,7 +68,7 @@ export function VoiceControlDock({
 
   return (
     <footer className="border-t border-slate-200 bg-white/95 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-950/95">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
+      <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 pt-3.5 pb-[calc(3rem+env(safe-area-inset-bottom))] md:pb-3.5">
         {errorMessage && (
           <div
             role="alert"

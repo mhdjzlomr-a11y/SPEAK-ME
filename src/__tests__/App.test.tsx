@@ -186,4 +186,53 @@ describe('App integration flow', () => {
 
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
+
+  it('allows retrying a failed message inline after temporary server overload', async () => {
+    window.localStorage.setItem(
+      'speakme_settings_v1',
+      JSON.stringify({ apiKey: 'AIzaTestKey123' })
+    );
+
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        reply: "I'm doing wonderful! How is your day?",
+                        replyMalayalam: 'എനിക്ക് സുഖമാണ്! നിങ്ങളുടെ ദിവസം എങ്ങനെയുണ്ട്?',
+                        hasCorrection: false,
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
+
+    render(<App />);
+
+    const textInput = screen.getByLabelText(/Type an English message/i);
+    fireEvent.change(textInput, { target: { value: 'How are you' } });
+    fireEvent.submit(textInput.closest('form')!);
+
+    const retryButton = await screen.findByRole('button', { name: /Retry/i });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("I'm doing wonderful! How is your day?")
+      ).toBeInTheDocument();
+    });
+  });
 });

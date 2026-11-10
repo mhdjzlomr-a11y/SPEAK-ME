@@ -75,6 +75,7 @@ export function App() {
   const runTutorTurn = useCallback(
     async (options: {
       placeholderText: string;
+      existingMessageId?: string;
       removePlaceholderOnError: boolean;
       execute: (
         currentSettings: AppSettings,
@@ -98,15 +99,27 @@ export function App() {
       speech.stop();
       setApiError(null);
 
-      const userMessage: ChatMessage = {
-        id: createMessageId(),
-        role: 'user',
-        text: options.placeholderText,
-        timestamp: Date.now(),
-      };
+      const targetId = options.existingMessageId ?? createMessageId();
+      const priorHistory = options.existingMessageId
+        ? messagesRef.current.filter((msg) => msg.id !== targetId)
+        : messagesRef.current;
 
-      const priorHistory = messagesRef.current;
-      setMessages((prev) => [...prev, userMessage]);
+      if (options.existingMessageId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === targetId ? { ...msg, error: undefined } : msg
+          )
+        );
+      } else {
+        const userMessage: ChatMessage = {
+          id: targetId,
+          role: 'user',
+          text: options.placeholderText,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, userMessage]);
+      }
+
       setIsThinking(true);
 
       abortControllerRef.current?.abort();
@@ -131,11 +144,12 @@ export function App() {
         setMessages((prev) =>
           prev
             .map((msg) =>
-              msg.id === userMessage.id
+              msg.id === targetId
                 ? {
                     ...msg,
                     text: result.transcript ?? msg.text,
                     feedback: result.feedback,
+                    error: undefined,
                   }
                 : msg
             )
@@ -148,7 +162,7 @@ export function App() {
         if (err instanceof DOMException && err.name === 'AbortError') {
           setIsThinking(false);
           if (options.removePlaceholderOnError) {
-            setMessages((prev) => prev.filter((msg) => msg.id !== userMessage.id));
+            setMessages((prev) => prev.filter((msg) => msg.id !== targetId));
           }
           return;
         }
@@ -162,9 +176,9 @@ export function App() {
         setApiError(friendlyError);
         setMessages((prev) =>
           options.removePlaceholderOnError
-            ? prev.filter((msg) => msg.id !== userMessage.id)
+            ? prev.filter((msg) => msg.id !== targetId)
             : prev.map((msg) =>
-                msg.id === userMessage.id ? { ...msg, error: friendlyError } : msg
+                msg.id === targetId ? { ...msg, error: friendlyError } : msg
               )
         );
 
@@ -177,6 +191,31 @@ export function App() {
       }
     },
     [speakReplyWithAutoContinue, speech]
+  );
+
+  const handleRetryMessage = useCallback(
+    async (failedMessage: ChatMessage) => {
+      if (isThinking) return;
+      const text = failedMessage.text.trim();
+      if (!text) return;
+
+      await runTutorTurn({
+        placeholderText: text,
+        existingMessageId: failedMessage.id,
+        removePlaceholderOnError: false,
+        execute: (currentSettings, priorHistory, signal) =>
+          sendConversationTurn({
+            apiKey: currentSettings.apiKey,
+            model: currentSettings.model,
+            history: priorHistory,
+            userMessage: text,
+            level: currentSettings.level,
+            scenario: currentSettings.scenario,
+            signal,
+          }),
+      });
+    },
+    [isThinking, runTutorTurn]
   );
 
   const handleTurnSubmit = useCallback(
@@ -422,6 +461,7 @@ export function App() {
         onStartWithGreeting={handleStartWithGreeting}
         onSpeakText={handleSpeakText}
         onStopSpeaking={speech.stop}
+        onRetryMessage={handleRetryMessage}
       />
 
       <VoiceControlDock
