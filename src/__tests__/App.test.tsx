@@ -197,6 +197,7 @@ describe('App integration flow', () => {
       .mockResolvedValueOnce(new Response('{}', { status: 503 }))
       .mockResolvedValueOnce(new Response('{}', { status: 503 }))
       .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({

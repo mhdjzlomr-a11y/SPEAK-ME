@@ -116,25 +116,26 @@ export const STT_ACCENTS: AccentOption[] = [
 
 export const DEFAULT_GEMINI_MODELS: GeminiModelOption[] = [
   {
-    id: 'gemini-3.8-flash',
-    label: 'Gemini 3.8 Flash (Recommended)',
-    description: 'Fast, expressive free-tier default for natural tutoring.',
-  },
-  {
     id: 'gemini-3.5-flash-lite',
-    label: 'Gemini 3.5 Flash-Lite',
-    description: 'Ultra-lightweight and fast with generous throughput.',
+    label: 'Gemini 3.5 Flash-Lite (Fastest — Recommended)',
+    description: 'Ultra-low-latency model built for instant voice replies.',
   },
   {
     id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: 'Previous-generation Flash fallback if needed.',
+    label: 'Gemini 2.5 Flash (Fast Fallback)',
+    description: 'Reliable low-latency Flash model with thinking off.',
+  },
+  {
+    id: 'gemini-3.8-flash',
+    label: 'Gemini 3.8 Flash',
+    description: 'Expressive model (slightly slower under heavy server load).',
   },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  settingsVersion: 2,
   apiKey: '',
-  model: 'gemini-3.8-flash',
+  model: 'gemini-3.5-flash-lite',
   level: 'intermediate',
   scenario: 'free-talk',
   theme: 'dark',

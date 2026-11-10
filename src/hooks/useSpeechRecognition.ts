@@ -64,7 +64,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
   const {
     lang,
     autoSendOnSilence,
-    silenceDelayMs = 1700,
+    silenceDelayMs = 950,
     onFinalTranscript,
     onNetworkError,
   } = options;

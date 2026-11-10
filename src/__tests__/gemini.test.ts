@@ -206,6 +206,11 @@ describe('sendConversationTurn', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(String(mockFetch.mock.calls[0][0])).toContain('/models/gemini-3.8-flash:generateContent');
     expect(String(mockFetch.mock.calls[1][0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
+
+    const firstBody = JSON.parse(String(mockFetch.mock.calls[0][1]?.body));
+    const secondBody = JSON.parse(String(mockFetch.mock.calls[1][1]?.body));
+    expect(firstBody.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+    expect(secondBody.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
   });
 });
 

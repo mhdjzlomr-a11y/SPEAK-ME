@@ -39,6 +39,7 @@ export interface ChatMessage {
 }
 
 export interface AppSettings {
+  settingsVersion?: number;
   apiKey: string;
   model: string;
   level: ConversationLevel;

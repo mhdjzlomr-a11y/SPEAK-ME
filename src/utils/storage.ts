@@ -13,9 +13,13 @@ export function loadSettings(): AppSettings {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    const needsSpeedUpgrade =
+      (parsed.settingsVersion ?? 1) < 2 && parsed.model === 'gemini-3.8-flash';
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      settingsVersion: 2,
+      model: needsSpeedUpgrade ? DEFAULT_SETTINGS.model : parsed.model ?? DEFAULT_SETTINGS.model,
       ttsRate:
         typeof parsed.ttsRate === 'number' && parsed.ttsRate >= 0.6 && parsed.ttsRate <= 1.5
           ? parsed.ttsRate

@@ -8,11 +8,12 @@ import type {
 } from '../types/conversation';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_MESSAGES = 12;
 const FALLBACK_FLASH_MODELS = [
-  'gemini-3.8-flash',
   'gemini-3.5-flash-lite',
+  'gemini-2.5-flash-lite',
   'gemini-2.5-flash',
+  'gemini-3.8-flash',
 ];
 const RETRYABLE_STATUS_CODES = new Set([404, 429, 500, 502, 503, 504]);
 
@@ -147,8 +148,8 @@ export function buildSystemInstruction(
     `Scenario: ${scenario.label}. ${scenario.personaInstruction}`,
     `Learner level: ${levelInfo.label}. ${levelInfo.instruction}`,
     'Conversation guidelines:',
-    '- Keep your spoken "reply" natural and concise (2 to 4 sentences) so Text-to-Speech sounds conversational.',
-    '- Almost always end your "reply" with an inviting open-ended follow-up question to keep the learner speaking.',
+    '- Keep your spoken "reply" crisp, warm, and very concise (1 to 3 short sentences) for fast real-time voice replies.',
+    '- Almost always end your "reply" with a short, inviting follow-up question to keep the learner speaking.',
     '- Do not lecture inside "reply"; keep grammar corrections strictly inside the structured feedback fields.',
     '- Always provide "replyMalayalam" as a natural, easy-to-understand Malayalam translation of your English "reply" (written in Malayalam script).',
     '- Ignore minor speech-to-text punctuation quirks (missing periods or capitalization). Only set hasCorrection=true when there is an actual grammar, verb tense, article, preposition, or phrasing issue.',
@@ -287,23 +288,6 @@ function mapHttpError(status: number, serverMessage?: string): GeminiApiError {
   );
 }
 
-function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.reject(new DOMException('Aborted', 'AbortError'));
-  }
-  return new Promise((resolve, reject) => {
-    const timer = globalThis.setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      globalThis.clearTimeout(timer);
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
 function buildModelAttemptOrder(primaryModel: string): string[] {
   const seen = new Set<string>([primaryModel]);
   const ordered = [primaryModel];
@@ -326,6 +310,20 @@ function buildHistoryContents(history: ChatMessage[]): GeminiContentTurn[] {
     }));
 }
 
+function buildThinkingConfig(modelId: string): Record<string, unknown> | undefined {
+  const id = modelId.toLowerCase();
+  if (id.startsWith('gemini-3') && id.includes('flash-lite')) {
+    return { thinkingLevel: 'MINIMAL' };
+  }
+  if (id.startsWith('gemini-3')) {
+    return { thinkingLevel: 'LOW' };
+  }
+  if (id.startsWith('gemini-2.5')) {
+    return { thinkingBudget: 0 };
+  }
+  return undefined;
+}
+
 async function executeSingleModelRequest(params: {
   apiKey: string;
   model: string;
@@ -335,6 +333,17 @@ async function executeSingleModelRequest(params: {
   responseSchema: Record<string, unknown>;
   signal?: AbortSignal;
 }): Promise<string> {
+  const thinkingConfig = buildThinkingConfig(params.model);
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0.65,
+    maxOutputTokens: 1024,
+    responseMimeType: 'application/json',
+    responseSchema: params.responseSchema,
+  };
+  if (thinkingConfig) {
+    generationConfig.thinkingConfig = thinkingConfig;
+  }
+
   let response: Response;
   try {
     response = await fetch(
@@ -350,11 +359,7 @@ async function executeSingleModelRequest(params: {
             parts: [{ text: buildSystemInstruction(params.level, params.scenario) }],
           },
           contents: params.contents,
-          generationConfig: {
-            temperature: 0.7,
-            responseMimeType: 'application/json',
-            responseSchema: params.responseSchema,
-          },
+          generationConfig,
         }),
         signal: params.signal,
       }
@@ -429,8 +434,6 @@ async function executeGenerateContent(params: {
       if (!isRetryable || !hasNextCandidate) {
         throw err;
       }
-
-      await waitWithAbort(200, params.signal);
     }
   }
 
