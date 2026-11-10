@@ -13,7 +13,7 @@ import {
   STT_ACCENTS,
 } from '../constants/scenarios';
 import { fetchAvailableModels } from '../services/gemini';
-import type { AppSettings, GeminiModelOption } from '../types/conversation';
+import type { AppSettings, GeminiModelOption, SttMode } from '../types/conversation';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -210,6 +210,34 @@ export function SettingsModal({
                 </option>
               ))}
             </select>
+          </section>
+
+          {/* Voice Input Mode */}
+          <section className="space-y-1.5">
+            <label htmlFor="stt-mode" className="block font-medium text-slate-200">
+              Voice Input Mode
+            </label>
+            <select
+              id="stt-mode"
+              value={draft.sttMode}
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, sttMode: e.target.value as SttMode }))
+              }
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none focus:border-indigo-500"
+            >
+              <option value="auto">
+                Auto (Browser Live Captions + Gemini Voice Mic Fallback)
+              </option>
+              <option value="gemini-audio">
+                Gemini Voice Mic (Works in all browsers)
+              </option>
+              <option value="browser">
+                Browser Live Captions only (Chrome/Edge)
+              </option>
+            </select>
+            <p className="text-[11px] text-slate-400">
+              Auto seamlessly switches to Gemini Voice Mic if your browser blocks Web Speech servers.
+            </p>
           </section>
 
           {/* Speech Recognition Accent */}

@@ -31,6 +31,19 @@ export interface GeminiTutorResult {
   feedback: GrammarFeedback;
 }
 
+export interface GeminiAudioTutorResult extends GeminiTutorResult {
+  transcript: string;
+}
+
+type GeminiContentPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
+interface GeminiContentTurn {
+  role: 'user' | 'model';
+  parts: GeminiContentPart[];
+}
+
 interface GeminiResponsePayload {
   candidates?: Array<{
     content?: {
@@ -51,39 +64,53 @@ interface RawModelsListResponse {
   }>;
 }
 
+const TUTOR_BASE_PROPERTIES = {
+  reply: {
+    type: 'STRING',
+    description: 'Natural, warm conversational response in English (2-4 concise spoken sentences ending with a follow-up prompt or question).',
+  },
+  hasCorrection: {
+    type: 'BOOLEAN',
+    description: 'True only if the learner had a noticeable grammar, tense, preposition, or unnatural phrasing mistake worth gently improving.',
+  },
+  correctedSentence: {
+    type: 'STRING',
+    description: 'A grammatically correct version of the learner sentence when hasCorrection is true.',
+  },
+  explanation: {
+    type: 'STRING',
+    description: 'A brief, friendly 1-2 sentence explanation of the grammar or phrasing tip.',
+  },
+  betterAlternative: {
+    type: 'STRING',
+    description: 'Optional natural or idiomatic way a native speaker might express the same idea.',
+  },
+  vocabularyTip: {
+    type: 'OBJECT',
+    properties: {
+      word: { type: 'STRING' },
+      meaning: { type: 'STRING' },
+    },
+    required: ['word', 'meaning'],
+  },
+};
+
 const TUTOR_RESPONSE_SCHEMA = {
   type: 'OBJECT',
-  properties: {
-    reply: {
-      type: 'STRING',
-      description: 'Natural, warm conversational response in English (2-4 concise spoken sentences ending with a follow-up prompt or question).',
-    },
-    hasCorrection: {
-      type: 'BOOLEAN',
-      description: 'True only if the learner had a noticeable grammar, tense, preposition, or unnatural phrasing mistake worth gently improving.',
-    },
-    correctedSentence: {
-      type: 'STRING',
-      description: 'A grammatically correct version of the learner sentence when hasCorrection is true.',
-    },
-    explanation: {
-      type: 'STRING',
-      description: 'A brief, friendly 1-2 sentence explanation of the grammar or phrasing tip.',
-    },
-    betterAlternative: {
-      type: 'STRING',
-      description: 'Optional natural or idiomatic way a native speaker might express the same idea.',
-    },
-    vocabularyTip: {
-      type: 'OBJECT',
-      properties: {
-        word: { type: 'STRING' },
-        meaning: { type: 'STRING' },
-      },
-      required: ['word', 'meaning'],
-    },
-  },
+  properties: TUTOR_BASE_PROPERTIES,
   required: ['reply', 'hasCorrection'],
+};
+
+const TUTOR_AUDIO_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    transcript: {
+      type: 'STRING',
+      description: 'Accurate verbatim English transcription of what the learner spoke in the audio clip. Return an empty string if completely silent or unintelligible.',
+    },
+    ...TUTOR_BASE_PROPERTIES,
+  },
+  required: ['transcript', 'reply', 'hasCorrection'],
 };
 
 export function buildSystemInstruction(
@@ -109,7 +136,7 @@ export function buildSystemInstruction(
 /**
  * Strip optional markdown code fences before parsing JSON returned by LLMs.
  */
-export function parseTutorJsonResponse(rawText: string): GeminiTutorResult {
+function parseRawTutorObject(rawText: string): Record<string, unknown> {
   const cleaned = rawText
     .trim()
     .replace(/^```json\s*/i, '')
@@ -117,15 +144,18 @@ export function parseTutorJsonResponse(rawText: string): GeminiTutorResult {
     .replace(/\s*```$/, '')
     .trim();
 
-  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    return JSON.parse(cleaned) as Record<string, unknown>;
   } catch {
     throw new GeminiApiError(
       'AI returned an unexpected format. Please try sending your message again.',
       'bad-response'
     );
   }
+}
+
+export function parseTutorJsonResponse(rawText: string): GeminiTutorResult {
+  const parsed = parseRawTutorObject(rawText);
 
   const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : '';
   if (!reply) {
@@ -164,6 +194,25 @@ export function parseTutorJsonResponse(rawText: string): GeminiTutorResult {
   };
 }
 
+function parseAudioTutorJsonResponse(rawText: string): GeminiAudioTutorResult {
+  const parsed = parseRawTutorObject(rawText);
+  const transcript =
+    typeof parsed.transcript === 'string' ? parsed.transcript.trim() : '';
+
+  if (!transcript) {
+    throw new GeminiApiError(
+      'Could not hear English speech clearly in that recording. Please speak closer to your mic and try again.',
+      'bad-response'
+    );
+  }
+
+  const baseResult = parseTutorJsonResponse(rawText);
+  return {
+    transcript,
+    ...baseResult,
+  };
+}
+
 function mapHttpError(status: number, serverMessage?: string): GeminiApiError {
   const detail = serverMessage ? ` (${serverMessage})` : '';
 
@@ -196,15 +245,25 @@ function mapHttpError(status: number, serverMessage?: string): GeminiApiError {
   );
 }
 
-export async function sendConversationTurn(params: {
+function buildHistoryContents(history: ChatMessage[]): GeminiContentTurn[] {
+  return history
+    .filter((msg) => !msg.error && msg.text.trim().length > 0)
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.text }],
+    }));
+}
+
+async function executeGenerateContent(params: {
   apiKey: string;
   model: string;
-  history: ChatMessage[];
-  userMessage: string;
   level: ConversationLevel;
   scenario: ScenarioId;
+  contents: GeminiContentTurn[];
+  responseSchema: Record<string, unknown>;
   signal?: AbortSignal;
-}): Promise<GeminiTutorResult> {
+}): Promise<string> {
   const trimmedKey = params.apiKey.trim();
   if (!trimmedKey) {
     throw new GeminiApiError(
@@ -212,21 +271,6 @@ export async function sendConversationTurn(params: {
       'missing-key'
     );
   }
-
-  const recentHistory = params.history
-    .filter((msg) => !msg.error && msg.text.trim().length > 0)
-    .slice(-MAX_HISTORY_MESSAGES);
-
-  const contents = [
-    ...recentHistory.map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.text }],
-    })),
-    {
-      role: 'user',
-      parts: [{ text: params.userMessage }],
-    },
-  ];
 
   let response: Response;
   try {
@@ -242,11 +286,11 @@ export async function sendConversationTurn(params: {
           systemInstruction: {
             parts: [{ text: buildSystemInstruction(params.level, params.scenario) }],
           },
-          contents,
+          contents: params.contents,
           generationConfig: {
             temperature: 0.7,
             responseMimeType: 'application/json',
-            responseSchema: TUTOR_RESPONSE_SCHEMA,
+            responseSchema: params.responseSchema,
           },
         }),
         signal: params.signal,
@@ -276,7 +320,82 @@ export async function sendConversationTurn(params: {
     );
   }
 
+  return rawText;
+}
+
+export async function sendConversationTurn(params: {
+  apiKey: string;
+  model: string;
+  history: ChatMessage[];
+  userMessage: string;
+  level: ConversationLevel;
+  scenario: ScenarioId;
+  signal?: AbortSignal;
+}): Promise<GeminiTutorResult> {
+  const contents: GeminiContentTurn[] = [
+    ...buildHistoryContents(params.history),
+    {
+      role: 'user',
+      parts: [{ text: params.userMessage }],
+    },
+  ];
+
+  const rawText = await executeGenerateContent({
+    apiKey: params.apiKey,
+    model: params.model,
+    level: params.level,
+    scenario: params.scenario,
+    contents,
+    responseSchema: TUTOR_RESPONSE_SCHEMA,
+    signal: params.signal,
+  });
+
   return parseTutorJsonResponse(rawText);
+}
+
+/**
+ * Send recorded microphone audio directly to Gemini when browser Web Speech STT
+ * is unavailable or blocked (e.g., Brave/Firefox/Chromium without Google Speech keys).
+ */
+export async function sendAudioConversationTurn(params: {
+  apiKey: string;
+  model: string;
+  history: ChatMessage[];
+  audioBase64: string;
+  mimeType: string;
+  level: ConversationLevel;
+  scenario: ScenarioId;
+  signal?: AbortSignal;
+}): Promise<GeminiAudioTutorResult> {
+  const contents: GeminiContentTurn[] = [
+    ...buildHistoryContents(params.history),
+    {
+      role: 'user',
+      parts: [
+        {
+          text: 'Listen to the learner speaking English in this audio clip. Write an exact transcription in "transcript", provide helpful grammar feedback if needed, and continue the conversation in "reply".',
+        },
+        {
+          inlineData: {
+            mimeType: params.mimeType,
+            data: params.audioBase64,
+          },
+        },
+      ],
+    },
+  ];
+
+  const rawText = await executeGenerateContent({
+    apiKey: params.apiKey,
+    model: params.model,
+    level: params.level,
+    scenario: params.scenario,
+    contents,
+    responseSchema: TUTOR_AUDIO_RESPONSE_SCHEMA,
+    signal: params.signal,
+  });
+
+  return parseAudioTutorJsonResponse(rawText);
 }
 
 /**

@@ -10,10 +10,14 @@ import {
   X,
 } from 'lucide-react';
 import type { VoiceState } from '../types/conversation';
+import { formatRecordingDuration } from '../utils/audioUtils';
 
 interface VoiceControlDockProps {
   voiceState: VoiceState;
-  isSpeechSupported: boolean;
+  isVoiceSupported: boolean;
+  isAudioRecorderActive: boolean;
+  recordingSeconds: number;
+  usingAudioFallback: boolean;
   interimText: string;
   finalText: string;
   autoListen: boolean;
@@ -27,7 +31,10 @@ interface VoiceControlDockProps {
 
 export function VoiceControlDock({
   voiceState,
-  isSpeechSupported,
+  isVoiceSupported,
+  isAudioRecorderActive,
+  recordingSeconds,
+  usingAudioFallback,
   interimText,
   finalText,
   autoListen,
@@ -51,8 +58,10 @@ export function VoiceControlDock({
   };
 
   const stateLabel: Record<VoiceState, string> = {
-    idle: isSpeechSupported ? 'Tap mic to speak English' : 'Mic unsupported in this browser',
-    listening: 'Listening... tap mic to send',
+    idle: isVoiceSupported ? 'Tap mic to speak English' : 'Mic unsupported in this browser',
+    listening: isAudioRecorderActive
+      ? `Recording ${formatRecordingDuration(recordingSeconds)}... tap mic to send`
+      : 'Listening... tap mic to send',
     thinking: 'Thinking... tap to cancel',
     speaking: 'AI speaking... tap to interrupt',
   };
@@ -80,15 +89,26 @@ export function VoiceControlDock({
           </div>
         )}
 
-        {!isSpeechSupported && (
+        {!isVoiceSupported && (
           <p className="text-center text-xs text-amber-300/90">
-            Browser Speech-to-Text works best in Chrome or Edge. You can still type below and hear AI voice replies!
+            Microphone recording is unavailable in this browser. You can still type below and hear AI voice replies!
+          </p>
+        )}
+
+        {usingAudioFallback && voiceState !== 'listening' && (
+          <p className="text-center text-[11px] text-cyan-300/80">
+            Using Gemini Voice Mic mode — works directly across all browsers.
           </p>
         )}
 
         {voiceState === 'listening' && (
           <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/35 px-3.5 py-2 text-center text-sm text-indigo-100">
-            {liveTranscript ? (
+            {isAudioRecorderActive ? (
+              <span className="inline-flex items-center gap-2 text-rose-200">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-rose-400" />
+                Recording voice ({formatRecordingDuration(recordingSeconds)}) — speak English and tap mic to send
+              </span>
+            ) : liveTranscript ? (
               <span>&ldquo;{liveTranscript}&rdquo;</span>
             ) : (
               <span className="text-indigo-300/80">Listening... go ahead and speak</span>
@@ -100,7 +120,7 @@ export function VoiceControlDock({
           <button
             type="button"
             onClick={onToggleAutoListen}
-            disabled={!isSpeechSupported}
+            disabled={!isVoiceSupported}
             aria-pressed={autoListen}
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
               autoListen
@@ -122,7 +142,7 @@ export function VoiceControlDock({
               <button
                 type="button"
                 onClick={onMicAction}
-                disabled={voiceState === 'idle' && !isSpeechSupported}
+                disabled={voiceState === 'idle' && !isVoiceSupported}
                 aria-label={stateLabel[voiceState]}
                 className={`relative flex h-14 w-14 items-center justify-center rounded-full text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${
                   voiceState === 'listening'

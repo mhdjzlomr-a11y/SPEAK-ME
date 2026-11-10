@@ -130,6 +130,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   model: 'gemini-3.8-flash',
   level: 'intermediate',
   scenario: 'free-talk',
+  sttMode: 'auto',
   sttLang: 'en-US',
   ttsVoiceURI: '',
   ttsRate: 1.0,

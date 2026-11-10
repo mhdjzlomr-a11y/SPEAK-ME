@@ -93,4 +93,73 @@ describe('App integration flow', () => {
       screen.getByText(/Yesterday I went to the office\./i)
     ).toBeInTheDocument();
   });
+
+  it('automatically switches to Gemini Voice Mic when browser SpeechRecognition fires a network error', async () => {
+    window.localStorage.setItem(
+      'speakme_settings_v1',
+      JSON.stringify({ apiKey: 'AIzaTestKey123', sttMode: 'auto' })
+    );
+
+    const stopTrackMock = vi.fn();
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [{ stop: stopTrackMock }],
+        }),
+      },
+    });
+
+    class MockMediaRecorder {
+      static isTypeSupported = () => true;
+      state: RecordingState = 'inactive';
+      mimeType = 'audio/webm';
+      ondataavailable: ((e: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {
+        this.state = 'recording';
+      }
+      stop() {
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+    (window as unknown as { MediaRecorder: unknown }).MediaRecorder = MockMediaRecorder;
+
+    class FailingSpeechRecognition {
+      continuous = true;
+      interimResults = true;
+      lang = 'en-US';
+      onstart: (() => void) | null = null;
+      onresult: ((e: unknown) => void) | null = null;
+      onerror: ((e: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      start() {
+        this.onerror?.({ error: 'network' });
+        this.onend?.();
+      }
+      stop() {}
+      abort() {}
+    }
+    (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition =
+      FailingSpeechRecognition;
+
+    render(<App />);
+
+    const micButton = screen.getByRole('button', { name: /Tap mic to speak English/i });
+    fireEvent.click(micButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Recording voice/i)).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByText(/Speech recognition needs an internet connection/i)
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+    expect(stopTrackMock).toHaveBeenCalled();
+
+    delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
+  });
 });

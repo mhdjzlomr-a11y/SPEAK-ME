@@ -57,6 +57,7 @@ export interface UseSpeechRecognitionOptions {
   autoSendOnSilence: boolean;
   silenceDelayMs?: number;
   onFinalTranscript: (transcript: string) => void;
+  onNetworkError?: () => boolean;
 }
 
 export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
@@ -65,6 +66,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
     autoSendOnSilence,
     silenceDelayMs = 1700,
     onFinalTranscript,
+    onNetworkError,
   } = options;
 
   const isSupported = getSpeechRecognitionConstructor() !== null;
@@ -81,6 +83,9 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
 
   const onFinalTranscriptRef = useRef(onFinalTranscript);
   onFinalTranscriptRef.current = onFinalTranscript;
+
+  const onNetworkErrorRef = useRef(onNetworkError);
+  onNetworkErrorRef.current = onNetworkError;
 
   const autoSendRef = useRef(autoSendOnSilence);
   autoSendRef.current = autoSendOnSilence;
@@ -167,6 +172,13 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions) {
       clearSilenceTimer();
       submitOnEndRef.current = false;
       setIsListening(false);
+
+      if (event.error === 'network' && onNetworkErrorRef.current?.()) {
+        abortedIntentionallyRef.current = true;
+        setError(null);
+        return;
+      }
+
       setError(mapRecognitionError(event.error));
     };
 

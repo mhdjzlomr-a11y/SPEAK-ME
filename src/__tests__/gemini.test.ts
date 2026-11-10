@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GeminiApiError,
   parseTutorJsonResponse,
+  sendAudioConversationTurn,
   sendConversationTurn,
 } from '../services/gemini';
 import type { ChatMessage } from '../types/conversation';
@@ -156,5 +157,100 @@ describe('sendConversationTurn', () => {
         scenario: 'free-talk',
       })
     ).rejects.toMatchObject({ code: 'rate-limit', status: 429 });
+  });
+});
+
+describe('sendAudioConversationTurn', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends inlineData audio and returns transcript, reply, and feedback', async () => {
+    const mockFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      transcript: 'I like play cricket on Sunday.',
+                      reply: 'Cricket is awesome! Who do you usually play with?',
+                      hasCorrection: true,
+                      correctedSentence: 'I like playing cricket on Sundays.',
+                      explanation: 'Use "playing" (or "to play") after "like".',
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const result = await sendAudioConversationTurn({
+      apiKey: 'audio-test-key',
+      model: 'gemini-3.8-flash',
+      history: [],
+      audioBase64: 'SGVsbG8=',
+      mimeType: 'audio/webm',
+      level: 'beginner',
+      scenario: 'free-talk',
+    });
+
+    expect(result.transcript).toBe('I like play cricket on Sunday.');
+    expect(result.reply).toContain('Cricket is awesome!');
+    expect(result.feedback.hasCorrection).toBe(true);
+
+    const [, init] = mockFetch.mock.calls[0];
+    const body = JSON.parse(String(init?.body));
+    expect(body.generationConfig.responseSchema.required).toEqual([
+      'transcript',
+      'reply',
+      'hasCorrection',
+    ]);
+    expect(body.contents[0].parts[1]).toEqual({
+      inlineData: { mimeType: 'audio/webm', data: 'SGVsbG8=' },
+    });
+  });
+
+  it('throws bad-response when Gemini hears no transcript in silent audio', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      transcript: '   ',
+                      reply: 'I could not hear you.',
+                      hasCorrection: false,
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      sendAudioConversationTurn({
+        apiKey: 'audio-test-key',
+        model: 'gemini-3.8-flash',
+        history: [],
+        audioBase64: 'AAAA',
+        mimeType: 'audio/webm',
+        level: 'intermediate',
+        scenario: 'free-talk',
+      })
+    ).rejects.toMatchObject({ code: 'bad-response' });
   });
 });

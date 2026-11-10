@@ -4,9 +4,14 @@ import { Header } from './components/Header';
 import { SettingsModal } from './components/SettingsModal';
 import { VoiceControlDock } from './components/VoiceControlDock';
 import { getScenarioById } from './constants/scenarios';
+import { useAudioRecorder } from './hooks/useAudioRecorder';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
-import { GeminiApiError, sendConversationTurn } from './services/gemini';
+import {
+  GeminiApiError,
+  sendAudioConversationTurn,
+  sendConversationTurn,
+} from './services/gemini';
 import type {
   AppSettings,
   ChatMessage,
@@ -35,6 +40,7 @@ export function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [browserSttBlocked, setBrowserSttBlocked] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const settingsRef = useRef(settings);
@@ -44,8 +50,6 @@ export function App() {
   messagesRef.current = messages;
 
   const speech = useSpeechSynthesis();
-
-  // Keep a ref to recognition start so TTS onEnd callback never captures stale closures.
   const startListeningRef = useRef<() => void>(() => {});
 
   const speakReplyWithAutoContinue = useCallback(
@@ -68,11 +72,16 @@ export function App() {
     [speech]
   );
 
-  const handleTurnSubmit = useCallback(
-    async (rawText: string) => {
-      const userText = rawText.trim();
-      if (!userText) return;
-
+  const runTutorTurn = useCallback(
+    async (options: {
+      placeholderText: string;
+      removePlaceholderOnError: boolean;
+      execute: (
+        currentSettings: AppSettings,
+        priorHistory: ChatMessage[],
+        signal: AbortSignal
+      ) => Promise<{ transcript?: string; reply: string; feedback: ChatMessage['feedback'] }>;
+    }) => {
       const currentSettings = settingsRef.current;
       if (!currentSettings.apiKey.trim()) {
         setApiError('Add your free Google Gemini API key in Settings first.');
@@ -80,14 +89,13 @@ export function App() {
         return;
       }
 
-      // Stop any active audio before starting a new AI turn.
       speech.stop();
       setApiError(null);
 
       const userMessage: ChatMessage = {
         id: createMessageId(),
         role: 'user',
-        text: userText,
+        text: options.placeholderText,
         timestamp: Date.now(),
       };
 
@@ -100,15 +108,11 @@ export function App() {
       abortControllerRef.current = controller;
 
       try {
-        const result = await sendConversationTurn({
-          apiKey: currentSettings.apiKey,
-          model: currentSettings.model,
-          history: priorHistory,
-          userMessage: userText,
-          level: currentSettings.level,
-          scenario: currentSettings.scenario,
-          signal: controller.signal,
-        });
+        const result = await options.execute(
+          currentSettings,
+          priorHistory,
+          controller.signal
+        );
 
         const assistantMessage: ChatMessage = {
           id: createMessageId(),
@@ -121,7 +125,11 @@ export function App() {
           prev
             .map((msg) =>
               msg.id === userMessage.id
-                ? { ...msg, feedback: result.feedback }
+                ? {
+                    ...msg,
+                    text: result.transcript ?? msg.text,
+                    feedback: result.feedback,
+                  }
                 : msg
             )
             .concat(assistantMessage)
@@ -132,6 +140,9 @@ export function App() {
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           setIsThinking(false);
+          if (options.removePlaceholderOnError) {
+            setMessages((prev) => prev.filter((msg) => msg.id !== userMessage.id));
+          }
           return;
         }
 
@@ -143,9 +154,11 @@ export function App() {
         setIsThinking(false);
         setApiError(friendlyError);
         setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === userMessage.id ? { ...msg, error: friendlyError } : msg
-          )
+          options.removePlaceholderOnError
+            ? prev.filter((msg) => msg.id !== userMessage.id)
+            : prev.map((msg) =>
+                msg.id === userMessage.id ? { ...msg, error: friendlyError } : msg
+              )
         );
 
         if (
@@ -159,18 +172,92 @@ export function App() {
     [speakReplyWithAutoContinue, speech]
   );
 
+  const handleTurnSubmit = useCallback(
+    async (rawText: string) => {
+      const userText = rawText.trim();
+      if (!userText) return;
+
+      await runTutorTurn({
+        placeholderText: userText,
+        removePlaceholderOnError: false,
+        execute: (currentSettings, priorHistory, signal) =>
+          sendConversationTurn({
+            apiKey: currentSettings.apiKey,
+            model: currentSettings.model,
+            history: priorHistory,
+            userMessage: userText,
+            level: currentSettings.level,
+            scenario: currentSettings.scenario,
+            signal,
+          }),
+      });
+    },
+    [runTutorTurn]
+  );
+
+  const handleAudioSubmit = useCallback(
+    async (audioBase64: string, mimeType: string) => {
+      await runTutorTurn({
+        placeholderText: 'Processing voice recording...',
+        removePlaceholderOnError: true,
+        execute: (currentSettings, priorHistory, signal) =>
+          sendAudioConversationTurn({
+            apiKey: currentSettings.apiKey,
+            model: currentSettings.model,
+            history: priorHistory,
+            audioBase64,
+            mimeType,
+            level: currentSettings.level,
+            scenario: currentSettings.scenario,
+            signal,
+          }),
+      });
+    },
+    [runTutorTurn]
+  );
+
+  const audioRecorder = useAudioRecorder({
+    onAudioReady: handleAudioSubmit,
+  });
+
+  const handleBrowserSttNetworkError = useCallback(() => {
+    if (settingsRef.current.sttMode !== 'auto' || !audioRecorder.isSupported) {
+      return false;
+    }
+    setBrowserSttBlocked(true);
+    void audioRecorder.start();
+    return true;
+  }, [audioRecorder]);
+
   const recognition = useSpeechRecognition({
     lang: settings.sttLang,
     autoSendOnSilence: settings.autoSendOnSilence,
     onFinalTranscript: handleTurnSubmit,
+    onNetworkError: handleBrowserSttNetworkError,
   });
 
-  startListeningRef.current = () => {
-    if (recognition.isSupported && !isThinking) {
-      speech.stop();
+  const usingAudioFallback =
+    settings.sttMode === 'gemini-audio' ||
+    (settings.sttMode === 'auto' && (!recognition.isSupported || browserSttBlocked));
+
+  const isVoiceSupported =
+    settings.sttMode === 'browser'
+      ? recognition.isSupported
+      : settings.sttMode === 'gemini-audio'
+      ? audioRecorder.isSupported
+      : recognition.isSupported || audioRecorder.isSupported;
+
+  const beginListening = useCallback(() => {
+    if (isThinking) return;
+    speech.stop();
+    if (usingAudioFallback) {
+      void audioRecorder.start();
+    } else {
       recognition.start();
     }
-  };
+  }, [audioRecorder, isThinking, recognition, speech, usingAudioFallback]);
+
+  startListeningRef.current = beginListening;
 
   useEffect(() => {
     saveSettings(settings);
@@ -186,20 +273,27 @@ export function App() {
     };
   }, []);
 
+  const isListeningNow = recognition.isListening || audioRecorder.isRecording;
+
   const voiceState: VoiceState = isThinking
     ? 'thinking'
     : speech.isSpeaking
     ? 'speaking'
-    : recognition.isListening
+    : isListeningNow
     ? 'listening'
     : 'idle';
 
   const handleMicAction = () => {
     setApiError(null);
     recognition.clearError();
+    audioRecorder.clearError();
 
     if (voiceState === 'listening') {
-      recognition.stopAndSubmit();
+      if (audioRecorder.isRecording) {
+        audioRecorder.stopAndSubmit();
+      } else {
+        recognition.stopAndSubmit();
+      }
       return;
     }
 
@@ -210,10 +304,9 @@ export function App() {
     }
 
     if (voiceState === 'speaking') {
-      // Interrupt AI speech immediately and begin listening for the user.
       speech.stop();
-      if (recognition.isSupported) {
-        recognition.start();
+      if (isVoiceSupported) {
+        beginListening();
       }
       return;
     }
@@ -224,13 +317,19 @@ export function App() {
       return;
     }
 
-    recognition.start();
+    beginListening();
+  };
+
+  const handleCancelListening = () => {
+    recognition.abort();
+    audioRecorder.abort();
   };
 
   const handleNewChat = () => {
     abortControllerRef.current?.abort();
     setIsThinking(false);
     recognition.abort();
+    audioRecorder.abort();
     speech.stop();
     setApiError(null);
     setMessages([]);
@@ -262,6 +361,7 @@ export function App() {
 
   const handleSpeakText = (text: string, speechId: string, rate?: number) => {
     recognition.abort();
+    audioRecorder.abort();
     speech.speak(text, {
       id: speechId,
       rate: rate ?? settings.ttsRate,
@@ -270,7 +370,7 @@ export function App() {
     });
   };
 
-  const combinedError = apiError ?? recognition.error;
+  const combinedError = apiError ?? recognition.error ?? audioRecorder.error;
 
   return (
     <div className="flex h-full flex-col bg-slate-950 text-slate-100">
@@ -300,7 +400,10 @@ export function App() {
 
       <VoiceControlDock
         voiceState={voiceState}
-        isSpeechSupported={recognition.isSupported}
+        isVoiceSupported={isVoiceSupported}
+        isAudioRecorderActive={audioRecorder.isRecording}
+        recordingSeconds={audioRecorder.elapsedSeconds}
+        usingAudioFallback={usingAudioFallback}
         interimText={recognition.interimText}
         finalText={recognition.finalText}
         autoListen={settings.autoListen}
@@ -308,9 +411,10 @@ export function App() {
         onDismissError={() => {
           setApiError(null);
           recognition.clearError();
+          audioRecorder.clearError();
         }}
         onMicAction={handleMicAction}
-        onCancelListening={recognition.abort}
+        onCancelListening={handleCancelListening}
         onToggleAutoListen={() =>
           setSettings((prev) => ({ ...prev, autoListen: !prev.autoListen }))
         }
@@ -323,7 +427,12 @@ export function App() {
           settings={settings}
           voices={speech.voices}
           onClose={() => setIsSettingsOpen(false)}
-          onSave={(updated) => setSettings(updated)}
+          onSave={(updated) => {
+            if (updated.sttMode !== settings.sttMode) {
+              setBrowserSttBlocked(false);
+            }
+            setSettings(updated);
+          }}
           onTestVoice={(voiceURI, rate, lang) =>
             speech.speak(
               'Hello! I am SpeakMe, your English speaking partner. Let us practice together!',

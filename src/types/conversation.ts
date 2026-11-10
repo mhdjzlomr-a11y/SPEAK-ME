@@ -10,6 +10,8 @@ export type ScenarioId =
 
 export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
+export type SttMode = 'auto' | 'browser' | 'gemini-audio';
+
 export interface VocabularyTip {
   word: string;
   meaning: string;
@@ -37,6 +39,7 @@ export interface AppSettings {
   model: string;
   level: ConversationLevel;
   scenario: ScenarioId;
+  sttMode: SttMode;
   sttLang: string;
   ttsVoiceURI: string;
   ttsRate: number;
